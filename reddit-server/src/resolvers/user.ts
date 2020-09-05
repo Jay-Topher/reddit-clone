@@ -41,18 +41,42 @@ class UserResponse {
 
 @Resolver()
 export class UserResolver {
-  @Mutation(() => User)
+  @Mutation(() => UserResponse)
   async register(
     @Arg("options") options: UsernamePasswordInput,
     @Ctx() { em }: MyContext
-  ): Promise<User> {
+  ): Promise<UserResponse> {
     // const hashedPassword = password
     const { username, password } = options;
 
+    if (username.length <= 2) {
+      return {
+        errors: [{field: "username", message: "Username must be greater than two characters"}]
+      }
+    }
+    if (password.length <= 2) {
+      return {
+        errors: [{field: "password", message: "Password must be greater than two characters"}]
+      }
+    }
+
     const hashedPassword = await argon2.hash(password);
     const user = em.create(User, { username, password: hashedPassword });
-    await em.persistAndFlush(user);
-    return user;
+    try {
+      await em.persistAndFlush(user);
+    } catch (error) {
+      if (error.code === "23505") {
+        return {
+          errors: [
+            {
+              field: "username",
+              message: "username already taken",
+            },
+          ],
+        };
+      }
+    }
+    return { user };
   }
 
   @Query(() => UserResponse)
@@ -80,8 +104,8 @@ export class UserResolver {
       }
     } catch (error) {
       return {
-        errors: [{message: error, field: "Unknown"}]
-      }
+        errors: [{ message: error, field: "Unknown" }],
+      };
     }
   }
 }
