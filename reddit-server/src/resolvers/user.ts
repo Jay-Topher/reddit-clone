@@ -41,23 +41,44 @@ class UserResponse {
 
 @Resolver()
 export class UserResolver {
+  @Query(() => User, { nullable: true })
+  async me(@Ctx() { req, em }: MyContext) {
+    // not logged in
+    if (!req.session!.userId) {
+      return null;
+    }
+    const user = await em.findOne(User, { id: req.session!.userId });
+
+    return user;
+  }
+
   @Mutation(() => UserResponse)
   async register(
     @Arg("options") options: UsernamePasswordInput,
-    @Ctx() { em }: MyContext
+    @Ctx() { em, req }: MyContext
   ): Promise<UserResponse> {
     // const hashedPassword = password
     const { username, password } = options;
 
     if (username.length <= 2) {
       return {
-        errors: [{field: "username", message: "Username must be greater than two characters"}]
-      }
+        errors: [
+          {
+            field: "username",
+            message: "Username must be greater than two characters",
+          },
+        ],
+      };
     }
     if (password.length <= 2) {
       return {
-        errors: [{field: "password", message: "Password must be greater than two characters"}]
-      }
+        errors: [
+          {
+            field: "password",
+            message: "Password must be greater than two characters",
+          },
+        ],
+      };
     }
 
     const hashedPassword = await argon2.hash(password);
@@ -76,13 +97,17 @@ export class UserResolver {
         };
       }
     }
+
+    // store user id session
+    req.session.userId = user.id;
+
     return { user };
   }
 
   @Query(() => UserResponse)
   async login(
     @Arg("options") options: UsernamePasswordInput,
-    @Ctx() { em }: MyContext
+    @Ctx() { em, req }: MyContext
   ): Promise<UserResponse> {
     const { username, password } = options;
     const user = await em.findOne(User, { username });
@@ -93,13 +118,17 @@ export class UserResolver {
     }
     try {
       const samePassword = await argon2.verify(user.password, password);
-      if (samePassword) {
-        return {
-          user,
-        };
-      } else {
+      if (!samePassword) {
         return {
           errors: [{ message: "Incorrect credentials", field: "password" }],
+        };
+      } else {
+        // store user Id session
+        // set a cookie on the user
+        // keep them logged in
+        req.session.userId = user.id;
+        return {
+          user,
         };
       }
     } catch (error) {
