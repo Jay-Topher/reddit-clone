@@ -1,6 +1,6 @@
 import React from "react";
 import { Formik, Form } from "formik";
-import { Box, Button } from "@chakra-ui/core";
+import { Box, Button, Flex, Link } from "@chakra-ui/core";
 import Wrapper from "../components/Wrapper";
 import InputField from "../components/InputField";
 import { useLoginMutation } from "../generated/graphql";
@@ -8,6 +8,7 @@ import { toErrorMap } from "../utils/toErrorMap";
 import { useRouter } from "next/router";
 import { withUrqlClient } from "next-urql";
 import { createUrqlClient } from "../utils/createUrqlClient";
+import NextLink from "next/link";
 
 interface LoginProps {}
 
@@ -18,7 +19,7 @@ const Login: React.FC<LoginProps> = ({}) => {
   return (
     <Wrapper variant="small">
       <Formik
-        initialValues={{ username: "", password: "" }}
+        initialValues={{ usernameOrEmail: "", password: "" }}
         onSubmit={async (values, { setErrors }) => {
           const response = await login(values);
           if (response.data?.login.errors) {
@@ -31,9 +32,9 @@ const Login: React.FC<LoginProps> = ({}) => {
         {({ isSubmitting }) => (
           <Form>
             <InputField
-              name="username"
-              placeholder="Username"
-              label="Username"
+              name="usernameOrEmail"
+              placeholder="Username or Email"
+              label="Username/Email"
             />
             <Box my={4}>
               <InputField
@@ -43,9 +44,18 @@ const Login: React.FC<LoginProps> = ({}) => {
                 type="password"
               />
             </Box>
-            <Button type="submit" variantColor="teal" isLoading={isSubmitting}>
-              Login
-            </Button>
+            <Flex justifyContent="space-between" alignItems="center">
+              <Button
+                type="submit"
+                variantColor="teal"
+                isLoading={isSubmitting}
+              >
+                Login
+              </Button>
+              <NextLink href="/forgot-password">
+                <Link>Forgot Password</Link>
+              </NextLink>
+            </Flex>
           </Form>
         )}
       </Formik>
