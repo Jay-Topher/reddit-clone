@@ -11,11 +11,11 @@ import {
 import { User } from "../entites/User";
 import { MyContext } from "../types";
 import argon2 from "argon2";
-import { EntityManager } from "@mikro-orm/postgresql";
 import { COOKIE_NAME, FORGET_PASSWORD_PREFIX } from "../constants";
 import { validateRegister } from "../utils/validateRegister";
 import { v4 } from "uuid";
 import sendMail from "../utils/sendEmail";
+import { getConnection } from "typeorm";
 
 @InputType()
 export class UsernamePasswordInput {
@@ -53,7 +53,7 @@ export class UserResolver {
   async changePassword(
     @Arg("token") token: string,
     @Arg("newPassword") newPassword: string,
-    @Ctx() { redis, em, req }: MyContext
+    @Ctx() { redis, req }: MyContext
   ): Promise<UserResponse> {
     if (newPassword.length <= 2) {
       return {
@@ -65,7 +65,7 @@ export class UserResolver {
         ],
       };
     }
-    const key = FORGET_PASSWORD_PREFIX + token
+    const key = FORGET_PASSWORD_PREFIX + token;
     const userId = await redis.get(key);
 
     if (!userId) {
@@ -78,7 +78,9 @@ export class UserResolver {
         ],
       };
     }
-    const user = await em.findOne(User, { id: parseInt(userId) });
+
+    const userIdNum = parseInt(userId);
+    const user = await User.findOne(userIdNum);
 
     if (!user) {
       return {
@@ -91,10 +93,12 @@ export class UserResolver {
       };
     }
 
-    user.password = await argon2.hash(newPassword);
-    await em.persistAndFlush(user);
+    await User.update(
+      { id: userIdNum },
+      { password: await argon2.hash(newPassword) }
+    );
 
-    await redis.del(key)
+    await redis.del(key);
 
     req.session.userId = user.id;
 
@@ -103,9 +107,9 @@ export class UserResolver {
   @Mutation(() => Boolean)
   async forgotPassword(
     @Arg("email") email: string,
-    @Ctx() { em, redis }: MyContext
+    @Ctx() { redis }: MyContext
   ) {
-    const user = await em.findOne(User, { email });
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return false;
     }
@@ -126,12 +130,12 @@ export class UserResolver {
   }
 
   @Query(() => User, { nullable: true })
-  async me(@Ctx() { req, em }: MyContext) {
+  async me(@Ctx() { req }: MyContext) {
     // not logged in
     if (!req.session!.userId) {
       return null;
     }
-    const user = await em.findOne(User, { id: req.session!.userId });
+    const user = await User.findOne(req.session.userId);
 
     return user;
   }
@@ -139,7 +143,7 @@ export class UserResolver {
   @Mutation(() => UserResponse)
   async register(
     @Arg("options") options: UsernamePasswordInput,
-    @Ctx() { em, req }: MyContext
+    @Ctx() { req }: MyContext
   ): Promise<UserResponse> {
     const { username, password, email } = options;
     const errors = validateRegister(options);
@@ -151,18 +155,19 @@ export class UserResolver {
     const hashedPassword = await argon2.hash(password);
     let user;
     try {
-      const result = await (em as EntityManager)
-        .createQueryBuilder(User)
-        .getKnexQuery()
-        .insert({
+      const result = await getConnection()
+        .createQueryBuilder()
+        .insert()
+        .into(User)
+        .values({
           username,
           password: hashedPassword,
           email,
-          created_at: new Date(),
-          updated_at: new Date(),
         })
-        .returning("*");
-      user = result[0];
+        .returning("*")
+        .execute();
+
+      user = result.raw[0];
     } catch (error) {
       if (error.code === "23505") {
         return {
@@ -186,13 +191,12 @@ export class UserResolver {
   async login(
     @Arg("usernameOrEmail") usernameOrEmail: string,
     @Arg("password") password: string,
-    @Ctx() { em, req }: MyContext
+    @Ctx() { req }: MyContext
   ): Promise<UserResponse> {
-    const user = await em.findOne(
-      User,
+    const user = await User.findOne(
       usernameOrEmail.includes("@")
-        ? { email: usernameOrEmail }
-        : { username: usernameOrEmail }
+        ? { where: { email: usernameOrEmail } }
+        : { where: { username: usernameOrEmail } }
     );
     if (!user) {
       return {
